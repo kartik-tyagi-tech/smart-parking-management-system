@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Smart Parking — Demo</title>
+  <style>
+    :root{
+      --bg:#f6f8fb; --card:#ffffff; --muted:#6b7280; --accent:#2563eb;
+      --success:#059669; --danger:#dc2626; --radius:12px; --shadow: 0 6px 18px rgba(15,23,42,0.08);
+      font-family: Inter, system-ui, "Segoe UI", Roboto, Arial;
+    }
+    html,body{height:100%} body{margin:0;background:linear-gradient(180deg,#eef2ff 0%, #f6f8fb 60%);color:#0f172a;padding:28px}
+    .container{max-width:1100px;margin:0 auto}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .logo{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#7c3aed);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;box-shadow:var(--shadow);font-size:18px}
+    h1{margin:0;font-size:20px} p.lead{margin:0;color:var(--muted);font-size:13px}
+    .top-controls{display:flex;gap:12px;align-items:center}
+    .btn{background:var(--accent);color:white;padding:8px 12px;border-radius:10px;border:none;cursor:pointer;font-weight:600}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(37,99,235,0.12)}
+    .stats{display:flex;gap:10px;align-items:center}
+    .stat{background:var(--card);padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);min-width:120px}
+    .stat small{display:block;color:var(--muted);font-size:12px}
+    .stat strong{display:block;font-size:18px;margin-top:4px}
+    main{display:grid;grid-template-columns:1fr 380px;gap:18px}
+    .panel{background:var(--card);padding:16px;border-radius:14px;box-shadow:var(--shadow)}
+    .slots-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+    .slot-card{border-radius:12px;padding:12px;background:linear-gradient(180deg,#fff,#fbfdff);border:1px solid rgba(15,23,42,0.03);display:flex;flex-direction:column;gap:8px}
+    .slot-title{display:flex;align-items:center;justify-content:space-between;font-weight:700}
+    .slot-meta{font-size:13px;color:var(--muted)}
+    .badge{padding:6px 8px;border-radius:999px;font-weight:700;font-size:12px;color:white;display:inline-block}
+    .AVAILABLE{background:var(--success)} .BOOKED{background:var(--danger)} .OCCUPIED{background:#7c3aed} .MAINTENANCE{background:#b45309}
+    .actions{display:flex;gap:8px;margin-top:8px}
+    .small-btn{padding:6px 8px;border-radius:8px;border:none;cursor:pointer;font-weight:600}
+    .small-btn.ghost{background:transparent;border:1px solid rgba(15,23,42,0.06)}
+    .small-btn.primary{background:var(--accent);color:white}
+    aside .panel{height:100%}
+    .book-form label{display:block;font-size:13px;color:var(--muted);margin-top:8px}
+    .book-form input, .book-form select{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(15,23,42,0.06);margin-top:6px}
+    .output{height:120px;padding:10px;border-radius:8px;background:#0f172a;color:white;overflow:auto;font-size:13px}
+    footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,0.5);display:none;align-items:center;justify-content:center;z-index:40}
+    .modal{background:var(--card);padding:16px;border-radius:12px;width:420px;box-shadow:0 20px 60px rgba(2,6,23,0.4)}
+    .toast{position:fixed;right:20px;bottom:20px;background:#111;color:white;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);display:none;z-index:60}
+    @media (max-width:980px){ main{grid-template-columns:1fr;} .brand{gap:8px} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="logo">SP</div>
+        <div>
+          <h1>Smart Parking Management</h1>
+          <p class="lead">Simple demo — DB connected, bookings via PL/SQL</p>
+        </div>
+      </div>
+
+      <div class="top-controls">
+        <div class="stats">
+          <div class="stat"><small>Total Slots</small><strong id="totalSlots">—</strong></div>
+          <div class="stat"><small>Available</small><strong id="availableSlots">—</strong></div>
+          <div class="stat"><small>Booked</small><strong id="bookedSlots">—</strong></div>
+        </div>
+        <div style="width:12px"></div>
+        <button class="btn" id="btnRefresh">Refresh</button>
+        <button class="btn ghost" id="btnOpenForm">Quick Book</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <strong>Parking Slots</strong>
+          <small style="color:var(--muted)">Click a slot to autofill booking form</small>
+        </div>
+        <div id="slotsGrid" class="slots-grid" aria-live="polite"></div>
+      </section>
+
+      <aside>
+        <div class="panel">
+          <strong>Quick Booking</strong>
+          <form id="bookForm" class="book-form" onsubmit="return doBook(event)">
+            <label for="user_id">User ID</label>
+            <input id="user_id" type="number" value="1" min="1" required />
+            <label for="slot_id">Slot ID</label>
+            <input id="slot_id" type="number" placeholder="Enter slot id or click a slot" required />
+            <label for="start_time">Start (YYYY-MM-DD HH:MM:SS)</label>
+            <input id="start_time" type="text" value="" required />
+            <label for="end_time">End (YYYY-MM-DD HH:MM:SS)</label>
+            <input id="end_time" type="text" value="" required />
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button type="submit" class="btn">Book Now</button>
+              <button type="button" class="btn ghost" id="btnClear">Clear</button>
+            </div>
+          </form>
+
+          <div style="margin-top:14px">
+            <strong>Last action</strong>
+            <div id="outputBox" class="output"></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer><strong><b>Made by : Kartik Tyagi and Partha Mondal</b></strong></footer>
+    
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-hidden="true">
+    <div class="modal" role="document">
+      <h3>Quick Book</h3>
+      <p style="color:var(--muted);font-size:13px;margin-top:6px">Fill the form below to create a booking.</p>
+      <div style="margin-top:12px">
+        <label>User ID</label><input id="m_user" type="number" value="1" />
+        <label style="margin-top:8px">Slot ID</label><input id="m_slot" type="number" />
+        <label style="margin-top:8px">Start</label><input id="m_start" type="text" value="" />
+        <label style="margin-top:8px">End</label><input id="m_end" type="text" value="" />
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn" id="m_submit">Book</button>
+          <button class="btn ghost" id="m_cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  // config - change if your backend uses other host/port
+  const API = 'http://localhost:4000/api';
+  let slotsCache = [];
+
+  document.addEventListener('DOMContentLoaded', ()=> {
+    document.getElementById('btnRefresh').addEventListener('click', loadSlots);
+    document.getElementById('btnOpenForm').addEventListener('click', openModal);
+    document.getElementById('btnClear').addEventListener('click', clearForm);
+    document.getElementById('m_cancel').addEventListener('click', closeModal);
+    document.getElementById('m_submit').addEventListener('click', modalBook);
+
+    // default times
+    const now = new Date();
+    const fmt = (d)=> String(d).padStart(2,'0');
+    const addHours = (h)=>{
+      const t = new Date(now.getTime()+h*60*60*1000);
+      const pad=(n)=>n.toString().padStart(2,'0');
+      // FIX: use template literal correctly
+      return `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`;
+    };
+    document.getElementById('start_time').value = addHours(0);
+    document.getElementById('end_time').value = addHours(2);
+    document.getElementById('m_start').value = document.getElementById('start_time').value;
+    document.getElementById('m_end').value = document.getElementById('end_time').value;
+
+    loadSlots();
+  });
+
+  async function loadSlots(){
+    setOutput('Loading slots...');
+    try{
+      const res = await fetch(API + '/slots');
+      if(!res.ok) throw new Error('Status ' + res.status);
+      const data = await res.json();
+      slotsCache = data.map(normalize);
+      renderSlots(slotsCache);
+      updateStats(slotsCache);
+      setOutput('Slots loaded.');
+    }catch(err){
+      console.error(err);
+      setOutput('Error loading slots: ' + err.message);
+      showToast('Error fetching slots: ' + err.message, true);
+      document.getElementById('slotsGrid').innerHTML = '<div style="color:#c00">Failed to load slots</div>';
+    }
+  }
+
+  function normalize(s){
+    return {
+      slot_id: s.SLOT_ID ?? s.slot_id ?? s.Slot_ID,
+      status: (s.STATUS ?? s.status ?? s.Status ?? '').toUpperCase(),
+      location_id: s.LOCATION_ID ?? s.location_id ?? s.Location_ID ?? '-'
+    };
+  }
+
+  function renderSlots(items){
+    const grid = document.getElementById('slotsGrid');
+    grid.innerHTML = '';
+    if(!items.length){ grid.innerHTML = '<div style="color:var(--muted)">No slots found</div>'; return; }
+    items.forEach(s=>{
+      const div = document.createElement('div');
+      div.className = 'slot-card';
+      div.innerHTML = `
+        <div class="slot-title">
+          <div>Slot <span style="color:var(--accent)">${s.slot_id}</span></div>
+          <div class="badge ${s.status}">${s.status || 'UNKNOWN'}</div>
+        </div>
+        <div class="slot-meta">Location: ${s.location_id}</div>
+      `;
+      div.addEventListener('click', ()=>{
+        document.getElementById('slot_id').value = s.slot_id;
+        document.getElementById('m_slot').value = s.slot_id;
+        if(s.status !== 'AVAILABLE') showToast('Slot not available: ' + s.status, true);
+        else showToast('Slot ' + s.slot_id + ' selected');
+      });
+
+      // actions: Book, Details, Free (if not AVAILABLE)
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+
+      const btnBook = document.createElement('button');
+      btnBook.className = 'small-btn primary';
+      btnBook.innerText = 'Book';
+      btnBook.disabled = s.status !== 'AVAILABLE';
+      btnBook.addEventListener('click', async (ev)=>{
+        ev.stopPropagation();
+        if(s.status !== 'AVAILABLE'){ showToast('Cannot book: ' + s.status, true); return; }
+        document.getElementById('slot_id').value = s.slot_id;
+        await doBook();
+      });
+
+      const btnView = document.createElement('button');
+      btnView.className = 'small-btn ghost';
+      btnView.innerText = 'Details';
+      btnView.addEventListener('click', (ev)=>{ ev.stopPropagation(); showToast('Slot '+s.slot_id+' — status: '+s.status); });
+
+      actions.appendChild(btnBook);
+      actions.appendChild(btnView);
+
+      // FREE button: shown when slot is not AVAILABLE (BOOKED/OCCUPIED/MAINTENANCE)
+      if(s.status !== 'AVAILABLE'){
+        const btnFree = document.createElement('button');
+        btnFree.className = 'small-btn';
+        btnFree.style.background = '#1f2937'; btnFree.style.color = 'white';
+        btnFree.innerText = 'Free';
+        btnFree.addEventListener('click', async (ev)=>{
+          ev.stopPropagation();
+          if(!confirm('Mark slot '+s.slot_id+' as AVAILABLE? This will cancel active bookings if any.')) return;
+          await freeSlot(s.slot_id);
+        });
+        actions.appendChild(btnFree);
+      }
+
+      div.appendChild(actions);
+      grid.appendChild(div);
+    });
+  }
+
+  function updateStats(items){
+    const total = items.length;
+    const available = items.filter(s=>s.status==='AVAILABLE').length;
+    const booked = items.filter(s=>s.status==='BOOKED' || s.status==='OCCUPIED').length;
+    document.getElementById('totalSlots').innerText = total;
+    document.getElementById('availableSlots').innerText = available;
+    document.getElementById('bookedSlots').innerText = booked;
+  }
+
+  async function doBook(e){
+    if(e) e.preventDefault();
+    const user_id = Number(document.getElementById('user_id').value);
+    const slot_id = Number(document.getElementById('slot_id').value);
+    const start_time = document.getElementById('start_time').value.trim();
+    const end_time = document.getElementById('end_time').value.trim();
+    if(!user_id || !slot_id || !start_time || !end_time){ showToast('Fill all fields', true); return; }
+    const slot = slotsCache.find(s=>s.slot_id === slot_id);
+    if(slot && slot.status !== 'AVAILABLE'){ showToast('Slot not available: ' + slot.status, true); return; }
+
+    setOutput('Booking slot...');
+    try{
+      const res = await fetch(API + '/book', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ user_id, slot_id, start_time, end_time })
+      });
+      const data = await res.json();
+      setOutput(JSON.stringify(data, null, 2));
+      if((data.MSG && data.MSG.includes('BOOKING_SUCCESS')) || (data.msg && data.msg.includes('BOOKING_SUCCESS')) || (data.p_status_msg && data.p_status_msg.includes('BOOKING_SUCCESS'))){
+        showToast('Booking successful', false);
+        setTimeout(loadSlots, 1200);
+      } else {
+        showToast('Booking: ' + (data.MSG || data.msg || data.p_status_msg || JSON.stringify(data)), true);
+      }
+    }catch(err){
+      console.error(err);
+      setOutput('Error: ' + err.message);
+      showToast('Error booking: ' + err.message, true);
+    }
+  }
+
+  // Free slot API call
+  async function freeSlot(slot_id){
+    setOutput('Freeing slot ' + slot_id + ' ...');
+    try{
+      const res = await fetch(API + '/free', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ slot_id })
+      });
+      const data = await res.json();
+      setOutput(JSON.stringify(data, null, 2));
+      if(res.ok){
+        showToast('Slot ' + slot_id + ' freed', false);
+        setTimeout(loadSlots, 900);
+      } else {
+        showToast('Free failed: ' + (data.error || JSON.stringify(data)), true);
+      }
+    }catch(err){
+      console.error(err);
+      setOutput('Error freeing slot: ' + err.message);
+      showToast('Error freeing slot: ' + err.message, true);
+    }
+  }
+
+  function clearForm(){
+    document.getElementById('slot_id').value='';
+    const now = new Date();
+    const pad=(n)=>n.toString().padStart(2,'0');
+    // FIX: use template literal correctly
+    document.getElementById('start_time').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:00`;
+    document.getElementById('end_time').value = new Date(now.getTime()+2*60*60*1000).toISOString().slice(0,19).replace('T',' ');
+    setOutput('Cleared form.');
+  }
+
+  function openModal(){ document.getElementById('modalBackdrop').style.display='flex'; document.getElementById('modalBackdrop').setAttribute('aria-hidden','false'); }
+  function closeModal(){ document.getElementById('modalBackdrop').style.display='none'; document.getElementById('modalBackdrop').setAttribute('aria-hidden','true'); }
+  async function modalBook(){
+    const u = Number(document.getElementById('m_user').value);
+    const s = Number(document.getElementById('m_slot').value);
+    const st = document.getElementById('m_start').value.trim();
+    const et = document.getElementById('m_end').value.trim();
+    if(!u||!s||!st||!et){ showToast('Fill all fields', true); return; }
+    document.getElementById('m_submit').innerText='Booking...';
+    try{
+      document.getElementById('user_id').value = u;
+      document.getElementById('slot_id').value = s;
+      document.getElementById('start_time').value = st;
+      document.getElementById('end_time').value = et;
+      await doBook();
+    }finally{
+      document.getElementById('m_submit').innerText='Book';
+      closeModal();
+    }
+  }
+
+  function setOutput(txt){ const o=document.getElementById('outputBox'); o.textContent=txt; }
+  function showToast(msg, isError=false){
+    const t = document.getElementById('toast');
+    t.style.display='block';
+    t.style.background = isError? 'var(--danger)' : '#111';
+    t.textContent = msg;
+    setTimeout(()=>{ t.style.display='none'; }, 2800);
+  }
+</script>
+</body>
+</html>
