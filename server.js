@@ -1,7 +1,16 @@
+require("dotenv").config();
+
+
+const oracledb = require("oracledb");
+
+
+oracledb.initOracleClient({
+  libDir: "C:\\oracle\\instantclient_21\\instantclient_23_0"
+});
+
 // server.js (CommonJS) — updated: static serving + /api/free
 const express = require("express");
 const cors = require("cors");
-const oracledb = require("oracledb");
 const path = require("path");
 
 const app = express();
@@ -12,12 +21,12 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 
-// DB connection helper — update credentials if needed
+// DB connection helper
 async function getConnection() {
   return await oracledb.getConnection({
-    user: "C##spms",
-    password: "kamal735",
-    connectString: "localhost:1521/XEPDB1", // or XEPDB1 if needed
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    connectString: process.env.DB_CONNECT
   });
 }
 
@@ -43,7 +52,7 @@ app.get("/api/slots", async (req, res) => {
   }
 });
 
-// --- API: book (calls your PL/SQL procedure book_slot)
+// --- API: book
 app.post("/api/book", async (req, res) => {
   const { user_id, slot_id, start_time, end_time } = req.body;
   console.log("POST /api/book", { user_id, slot_id, start_time, end_time });
@@ -75,7 +84,7 @@ app.post("/api/book", async (req, res) => {
   }
 });
 
-// --- API: free a slot (cancel bookings and set slot to AVAILABLE)
+// --- API: free a slot
 app.post("/api/free", async (req, res) => {
   const { slot_id } = req.body;
   if (!slot_id) return res.status(400).json({ error: "slot_id required" });
@@ -85,7 +94,6 @@ app.post("/api/free", async (req, res) => {
   try {
     conn = await getConnection();
 
-    // Cancel active bookings for this slot (adjust statuses to match your schema)
     await conn.execute(
       `UPDATE booking
          SET status = 'CANCELLED'
@@ -94,14 +102,12 @@ app.post("/api/free", async (req, res) => {
       { autoCommit: false }
     );
 
-    // Set slot to AVAILABLE
     await conn.execute(
       `UPDATE parking_slot SET status = 'AVAILABLE' WHERE slot_id = :sid`,
       [slot_id],
       { autoCommit: false }
     );
 
-    // Commit both statements together
     await conn.commit();
 
     res.json({ ok: true, slot_id });
@@ -121,5 +127,3 @@ app.post("/api/free", async (req, res) => {
 // --- Server start
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-
